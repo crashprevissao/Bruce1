@@ -560,7 +560,11 @@ int loopOptions(
 
         // handleSerialCommands(); // always use serial task for it
 #ifdef HAS_KEYBOARD
-        checkShortcutPress(); // shortctus to quickly start apps without navigating the menus
+        if (checkShortcutPress()) {
+            // Shortcut opened a submenu that drew over the screen; force full redraw
+            redraw = true;
+            drawMainBorder();
+        }
 #endif
 
         if (menuType == MENU_TYPE_REGULAR) {
