@@ -14,10 +14,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.x"
 
@@ -98,38 +98,5 @@ jobs:
         run: |
           esptool.py --chip esp32 merge_bin -o .pio/build/m5stack-cplus1_1/release.bin --flash_mode dio --flash_size 4MB 0x1000 .pio/build/m5stack-cplus1_1/bootloader.bin 0x8000 .pio/build/m5stack-cplus1_1/partitions.bin 0x10000 .pio/build/m5stack-cplus1_1/firmware.bin
           esptool.py --chip esp32 merge_bin -o .pio/build/m5stack-cplus2/release.bin --flash_mode dio --flash_size 8MB 0x1000 .pio/build/m5stack-cplus2/bootloader.bin 0x8000 .pio/build/m5stack-cplus2/partitions.bin 0x10000 .pio/build/m5stack-cplus2/firmware.bin
-          esptool.py --chip esp32s3 merge_bin -o .pio/build/m5stack-cardputer/release.bin --flash_mode dio --flash_size 8MB 0x0000 .pio/build/m5stack-cardputer/bootloader.bin 0x8000 .pio/build/m5stack-cardputer/partitions.bin 0x10000 .pio/build/m5stack-cardputer/firmware.bin
-
-      - name: Rename release.bin files
-        run: |
-          for file in $(find .pio/build/**/ -name 'release.bin'); do
-            version=$(echo ${{ github.run_number }})
-            env=$(basename $(dirname "$file"))
-            new_name="Bruce_${env}_v0.0.$version.bin"
-            mv "$file" "$(dirname "$file")/$new_name"
-          done
-          chmod +r .pio/build/**/Bruce*.bin
-          ls .pio/build/**/Bruce*.bin
-        if: github.event_name != 'pull_request'
-
-      - name: Upload Binaries
-        id: upload_binaries_Cplus
-        uses: actions/upload-artifact@v3
-        with:
-          path: .pio/build/m5stack-cplus1_1/Bruce*.bin
-        if: github.event_name != 'pull_request'
-
-      - name: Upload Binaries
-        id: upload_binaries_Cplus2
-        uses: actions/upload-artifact@v3
-        with:
-          path: .pio/build/m5stack-cplus2/Bruce*.bin
-        if: github.event_name != 'pull_request'
-
-      - name: Upload Binaries_Card
-        id: upload_binaries
-        uses: actions/upload-artifact@v3
-        with:
-          path: .pio/build/m5stack-cardputer/Bruce*.bin
-        if: github.event_name != 'pull_request'
-        
+          esptool.py --chip esp32s3 merge_bin -o .pio/build/m5stack-cardputer/release.bin --flash_mode dio --flash_size 8MB 0
+          
