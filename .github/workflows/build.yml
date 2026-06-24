@@ -1,4 +1,4 @@
-name: Test-build
+name: Test-build-WROOM-OLED
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
 
 jobs:
   build_and_release:
-    name: Build for tests
+    name: Build ESP32 WROOM OLED Only
     runs-on: ubuntu-latest
 
     steps:
@@ -29,15 +29,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Cache PlatformIO
+      - name: Cache PlatformIO (Clean Key)
         uses: actions/cache@v4
         with:
           path: |
             ~/.platformio
-          key: ${{ runner.os }}-pio-v6-${{ hashFiles('**/platformio.ini') }}
-          restore-keys: ${{ runner.os }}-pio-v6-
+          key: ${{ runner.os }}-pio-wroom-exclusive-v2-${{ hashFiles('**/platformio.ini') }}
+          restore-keys: ${{ runner.os }}-pio-wroom-exclusive-v2-
 
-      - name: Create Custom Board Definition
+      - name: Force Variant and Board Fixes
         run: |
           mkdir -p boards
           cat << 'EOF' > boards/esp32-wroom-oled.json
@@ -58,7 +58,7 @@ jobs:
             "frameworks": [
               "arduino"
             ],
-            "name": "ESP32 WROOM OLED Custom",
+            "name": "ESP32 WROOM OLED",
             "upload": {
               "flash_size": "4MB",
               "maximum_ram_size": 327680,
@@ -70,6 +70,22 @@ jobs:
           }
           EOF
 
+          # Modifica o platformio.ini para garantir que a variante correta seja incluída pelo compilador
+          python -c "
+          import os
+          if os.path.exists('platformio.ini'):
+              with open('platformio.ini', 'r') as f:
+                  lines = f.readlines()
+              new_lines = []
+              for line in lines:
+                  new_lines.append(line)
+                  if '[env:esp32-wroom-oled]' in line:
+                      new_lines.append('board_build.variant = esp32\n')
+              with open('platformio.ini', 'w') as f:
+                  f.writelines(new_lines)
+              print('Sucesso: platformio.ini modificado para incluir caminhos base.')
+          "
+
       - name: Install dependencies
         run: pip install requests esptool
 
@@ -77,113 +93,75 @@ jobs:
         run: |
           pip install platformio
           
-          # Instala as dependências e plataformas de forma limpa antes do patch
+          # Instala as dependências de forma limpa antes do patch de pacotes
           pio pkg install
           
           esp32_file="$HOME/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/lib/libnet80211.a"
-          esp32s3_file="$HOME/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32s3/lib/libnet80211.a"
-          
           esp32_file_temp="$HOME/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/lib/libnet80211_temp.a"
-          esp32s3_file_temp="$HOME/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32s3/lib/libnet80211_temp.a"
-          
           toolchain_esp32="$HOME/.platformio/packages/toolchain-xtensa-esp32/xtensa-esp32-elf/bin/objcopy"
-          toolchain_esp32s3="$HOME/.platformio/packages/toolchain-xtensa-esp32s3/xtensa-esp32s3-elf/bin/objcopy"
           
           if [ ! -f "$toolchain_esp32" ]; then toolchain_esp32=$(find $HOME/.platformio/packages/ -name "xtensa-esp32-elf-objcopy" | head -n 1); fi
-          if [ ! -f "$toolchain_esp32s3" ]; then toolchain_esp32s3=$(find $HOME/.platformio/packages/ -name "xtensa-esp32s3-elf-objcopy" | head -n 1); fi
-          
           if [ -z "$toolchain_esp32" ]; then toolchain_esp32="objcopy"; fi
-          if [ -z "$toolchain_esp32s3" ]; then toolchain_esp32s3="objcopy"; fi
 
-          if [[ -f "$esp32_file" && -f "$esp32s3_file" ]]; then
+          if [ -f "$esp32_file" ]; then
               $toolchain_esp32 --weaken-symbol=ieee80211_raw_frame_sanity_check "$esp32_file" "$esp32_file_temp"
               mv "$esp32_file" "${esp32_file}.old"
               mv "$esp32_file_temp" "$esp32_file"
-          
-              $toolchain_esp32s3 --weaken-symbol=ieee80211_raw_frame_sanity_check "$esp32s3_file" "$esp32s3_file_temp"
-              mv "$esp32s3_file" "${esp32s3_file}.old"
-              mv "$esp32s3_file_temp" "$esp32s3_file"
               echo "Patch aplicado com sucesso."
           else
               echo "Aviso: Arquivos base prontos para compilação."
           fi
 
-      - name: Build Project
+      - name: Build Project (WROOM OLED Only)
         run: |
-          platformio run
+          platformio run -e esp32-wroom-oled
 
       - name: Process, Merge and Separate Binaries
         run: |
           mkdir -p build_outputs
           version="v0.0.${{ github.run_number }}"
+          env_dir=".pio/build/esp32-wroom-oled"
           
-          # Localiza dinamicamente o arquivo boot_app0.bin para evitar erros de caminho
+          echo "----------------------------------------"
+          echo "Processando arquivos apenas para: esp32-wroom-oled"
+          
+          bootloader="$env_dir/bootloader.bin"
+          partitions="$env_dir/partitions.bin"
+          firmware="$env_dir/firmware.bin"
           boot_app0_src=$(find $HOME/.platformio/packages/ -name "boot_app0.bin" | head -n 1)
-          echo "Boot app0 encontrado em: $boot_app0_src"
           
-          for env_dir in .pio/build/*/; do
-            if [ -d "$env_dir" ]; then
-              env_name=$(basename "$env_dir")
-              echo "----------------------------------------"
-              echo "Processando arquivos para: $env_name"
-              
-              bootloader="$env_dir/bootloader.bin"
-              partitions="$env_dir/partitions.bin"
-              firmware="$env_dir/firmware.bin"
-              
-              if [[ -f "$bootloader" && -f "$partitions" && -f "$firmware" ]]; then
-                # Identifica as configurações de memória da placa
-                if [[ "$env_name" == *"s3"* || "$env_name" == *"cardputer"* ]]; then
-                  chip="esp32s3"
-                  offset="0x0000"
-                  flash_size="8MB"
-                elif [[ "$env_name" == *"cplus2"* ]]; then
-                  chip="esp32"
-                  offset="0x1000"
-                  flash_size="8MB"
-                else
-                  chip="esp32"
-                  offset="0x1000"
-                  flash_size="4MB"
-                fi
-                
-                # 1. Copia o Bootloader separado
-                cp "$bootloader" "build_outputs/Bruce_${env_name}_${version}_bootloader.bin"
-                
-                # 2. Copia a Partition separado
-                cp "$partitions" "build_outputs/Bruce_${env_name}_${version}_partitions.bin"
-                
-                # 3. Copia o Firmware principal separado
-                cp "$firmware" "build_outputs/Bruce_${env_name}_${version}_firmware.bin"
-                
-                # 4. Copia o boot_app0 ("boot") se encontrado e faz a mesclagem correta
-                if [ -n "$boot_app0_src" ] && [ -f "$boot_app0_src" ]; then
-                  cp "$boot_app0_src" "build_outputs/Bruce_${env_name}_${version}_boot_app0.bin"
-                  echo "Mesclando todos os arquivos (incluindo boot_app0)..."
-                  python -m esptool --chip $chip merge_bin -o "$env_dir/release.bin" --flash_mode dio --flash_size $flash_size $offset "$bootloader" 0x8000 "$partitions" 0xe000 "$boot_app0_src" 0x10000 "$firmware"
-                else
-                  echo "Aviso: boot_app0.bin não encontrado. Mesclando sem ele..."
-                  python -m esptool --chip $chip merge_bin -o "$env_dir/release.bin" --flash_mode dio --flash_size $flash_size $offset "$bootloader" 0x8000 "$partitions" 0x10000 "$firmware"
-                fi
-                
-                # 5. Move a versão mesclada gerada para a pasta final
-                if [ -f "$env_dir/release.bin" ]; then
-                  mv "$env_dir/release.bin" "build_outputs/Bruce_${env_name}_${version}_full_merged.bin"
-                fi
-                
-                echo "Sucesso: Exportados todos os ficheiros para $env_name"
-              else
-                echo "Arquivos essenciais não encontrados para $env_name. Pulando..."
-              fi
+          if [[ -f "$bootloader" && -f "$partitions" && -f "$firmware" ]]; then
+            # 1. Copia o Bootloader separado (Geralmente gravado em 0x1000)
+            cp "$bootloader" "build_outputs/Bruce_esp32-wroom-oled_${version}_bootloader.bin"
+            
+            # 2. Copia as Partitions separado (Geralmente gravado em 0x8000)
+            cp "$partitions" "build_outputs/Bruce_esp32-wroom-oled_${version}_partitions.bin"
+            
+            # 3. Copia o Firmware principal separado (Geralmente gravado em 0x10000)
+            cp "$firmware" "build_outputs/Bruce_esp32-wroom-oled_${version}_firmware.bin"
+            
+            # 4. Copia o boot_app0 ("boot") separado e cria o arquivo unificado mesclado
+            if [ -n "$boot_app0_src" ] && [ -f "$boot_app0_src" ]; then
+              cp "$boot_app0_src" "build_outputs/Bruce_esp32-wroom-oled_${version}_boot_app0.bin"
+              echo "Mesclando os 4 arquivos em um único binário full..."
+              python -m esptool --chip esp32 merge_bin -o "build_outputs/Bruce_esp32-wroom-oled_${version}_full_merged.bin" --flash_mode dio --flash_size 4MB 0x1000 "$bootloader" 0x8000 "$partitions" 0xe000 "$boot_app0_src" 0x10000 "$firmware"
+            else
+              echo "Aviso: boot_app0.bin não encontrado. Mesclando sem ele..."
+              python -m esptool --chip esp32 merge_bin -o "build_outputs/Bruce_esp32-wroom-oled_${version}_full_merged.bin" --flash_mode dio --flash_size 4MB 0x1000 "$bootloader" 0x8000 "$partitions" 0x10000 "$firmware"
             fi
-          done
+            
+            echo "Sucesso: Todos os arquivos individuais e unificados gerados na pasta de saída."
+          else
+            echo "Erro Crítico: Arquivos gerados não foram localizados."
+            exit 1
+          fi
           chmod -R +r build_outputs/
         if: github.event_name != 'pull_request'
 
-      - name: Upload All Binaries (Unified Pack)
+      - name: Upload Binaries Artifacts Pack
         uses: actions/upload-artifact@v4
         with:
-          name: Bruce-Firmwares-v0.0.${{ github.run_number }}
+          name: Bruce-ESP32-Wroom-OLED-${{ github.run_number }}
           path: build_outputs/
         if: github.event_name != 'pull_request'
         
