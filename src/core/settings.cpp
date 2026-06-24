@@ -1607,6 +1607,50 @@ RELOAD:
 }
 
 /*********************************************************************
+**  Function: setMicPinsMenu
+**  Menu to change Microphone I2S pins (CLK + DATA)
+**********************************************************************/
+void setMicPinsMenu() {
+    uint8_t opt = 0;
+    bool changed = false;
+    int clk = bruceConfigPins.micClk;
+    int data = bruceConfigPins.micData;
+
+RELOAD_MIC:
+    options = {
+        {String("CLK  = " + String(clk)).c_str(), [&]() { opt = 1; }},
+        {String("DATA = " + String(data)).c_str(), [&]() { opt = 2; }},
+        {"Save Config", [&]() { opt = 7; }, changed},
+        {"Main Menu", [&]() { opt = 0; }},
+    };
+
+    loopOptions(options);
+    if (opt == 0) return;
+    else if (opt == 7) {
+        if (changed) {
+            bruceConfigPins.setMicClkPin(clk);
+            bruceConfigPins.setMicDataPin(data);
+        }
+    } else {
+        options = {};
+        int sel = -1;
+        int index = 0;
+        if (opt == 1) index = clk + 1;
+        else if (opt == 2) index = data + 1;
+        for (int8_t i = -1; i <= GPIO_NUM_MAX; i++) {
+            String tmp = String(i);
+            options.push_back({tmp.c_str(), [i, &sel]() { sel = i; }});
+        }
+        loopOptions(options, index);
+        options.clear();
+        if (opt == 1) clk = sel;
+        else if (opt == 2) data = sel;
+        changed = true;
+        goto RELOAD_MIC;
+    }
+}
+
+/*********************************************************************
 **  Function: setTheme
 **  Menu to change Theme
 **********************************************************************/
