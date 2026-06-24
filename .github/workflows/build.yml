@@ -34,8 +34,8 @@ jobs:
         with:
           path: |
             ~/.platformio
-          key: ${{ runner.os }}-pio-${{ hashFiles('**/platformio.ini') }}
-          restore-keys: ${{ runner.os }}-pio-
+          key: ${{ runner.os }}-pio-v3-${{ hashFiles('**/platformio.ini') }}
+          restore-keys: ${{ runner.os }}-pio-v3-
 
       - name: Install dependencies
         run: pip install requests esptool
@@ -45,7 +45,7 @@ jobs:
           pip install platformio
           platformio update
           
-          # Garante o download das plataformas e frameworks definidos no platformio.ini antes da modificação dos arquivos internos
+          # Garante o download limpo de todas as dependências do platformio.ini
           pio pkg install
           
           esp32_file="$HOME/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/lib/libnet80211.a"
@@ -58,36 +58,23 @@ jobs:
           toolchain_esp32="$HOME/.platformio/packages/toolchain-xtensa-esp32/xtensa-esp32-elf/bin/objcopy"
           toolchain_esp32s3="$HOME/.platformio/packages/toolchain-xtensa-esp32s3/xtensa-esp32s3-elf/bin/objcopy"
           
-          # Busca dinâmica para manter a compatibilidade caso a versão ou nome das ferramentas mude no PlatformIO
           if [ ! -f "$toolchain_esp32" ]; then toolchain_esp32=$(find $HOME/.platformio/packages/ -name "xtensa-esp32-elf-objcopy" | head -n 1); fi
           if [ ! -f "$toolchain_esp32s3" ]; then toolchain_esp32s3=$(find $HOME/.platformio/packages/ -name "xtensa-esp32s3-elf-objcopy" | head -n 1); fi
           
           if [ -z "$toolchain_esp32" ]; then toolchain_esp32="objcopy"; fi
           if [ -z "$toolchain_esp32s3" ]; then toolchain_esp32s3="objcopy"; fi
 
-          # Verificar se os arquivos existem antes de executar os comandos objcopy
           if [[ -f "$esp32_file" && -f "$esp32s3_file" ]]; then
-              # Execute objcopy commands for ESP32
               $toolchain_esp32 --weaken-symbol=ieee80211_raw_frame_sanity_check "$esp32_file" "$esp32_file_temp"
-              
-              # Rename the original file to .old
               mv "$esp32_file" "${esp32_file}.old"
-          
-              # Rename the _temp to original
               mv "$esp32_file_temp" "$esp32_file"
           
-              # Execute objcopy commands for ESP32-S3
               $toolchain_esp32s3 --weaken-symbol=ieee80211_raw_frame_sanity_check "$esp32s3_file" "$esp32s3_file_temp"
-          
-              # Rename the original file to .old
               mv "$esp32s3_file" "${esp32s3_file}.old"
-          
-              # Rename the _temp to original
               mv "$esp32s3_file_temp" "$esp32s3_file"
-          
-              echo "Done."
+              echo "Patch aplicado com sucesso."
           else
-              echo "Os arquivos do framework não puderam ser processados preventivamente. Prosseguindo..."
+              echo "Aviso: Arquivos de patch não modificados nesta etapa preliminar. O PlatformIO cuidará disso no build."
           fi
 
       - name: Build Project
@@ -98,5 +85,46 @@ jobs:
         run: |
           esptool.py --chip esp32 merge_bin -o .pio/build/m5stack-cplus1_1/release.bin --flash_mode dio --flash_size 4MB 0x1000 .pio/build/m5stack-cplus1_1/bootloader.bin 0x8000 .pio/build/m5stack-cplus1_1/partitions.bin 0x10000 .pio/build/m5stack-cplus1_1/firmware.bin
           esptool.py --chip esp32 merge_bin -o .pio/build/m5stack-cplus2/release.bin --flash_mode dio --flash_size 8MB 0x1000 .pio/build/m5stack-cplus2/bootloader.bin 0x8000 .pio/build/m5stack-cplus2/partitions.bin 0x10000 .pio/build/m5stack-cplus2/firmware.bin
-          esptool.py --chip esp32s3 merge_bin -o .pio/build/m5stack-cardputer/release.bin --flash_mode dio --flash_size 8MB 0
-          
+          esptool.py --chip esp32s3 merge_bin -o .pio/build/m5stack-cardputer/release.bin --flash_mode dio --flash_size 8MB 0x0000 .pio/build/m5stack-cardputer/bootloader.bin 0x8000 .pio/build/m5stack-cardputer/partitions.bin 0x10000 .pio/build/m5stack-cardputer/firmware.bin
+          esptool.py --chip esp32 merge_bin -o .pio/build/esp32-wroom-oled/release.bin --flash_mode dio --flash_size 4MB 0x1000 .pio/build/esp32-wroom-oled/bootloader.bin 0x8000 .pio/build/esp32-wroom-oled/partitions.bin 0x10000 .pio/build/esp32-wroom-oled/firmware.bin
+
+      - name: Rename release.bin files
+        run: |
+          for file in $(find .pio/build/**/ -name 'release.bin'); do
+            version=$(echo ${{ github.run_number }})
+            env=$(basename $(dirname "$file"))
+            new_name="Bruce_${env}_v0.0.$version.bin"
+            mv "$file" "$(dirname "$file")/$new_name"
+          done
+          chmod +r .pio/build/**/Bruce*.bin
+          ls .pio/build/**/Bruce*.bin
+        if: github.event_name != 'pull_request'
+
+      - name: Upload Binaries M5Stack CPlus
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bruce-m5stack-cplus1_1
+          path: .pio/build/m5stack-cplus1_1/Bruce*.bin
+        if: github.event_name != 'pull_request'
+
+      - name: Upload Binaries M5Stack CPlus2
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bruce-m5stack-cplus2
+          path: .pio/build/m5stack-cplus2/Bruce*.bin
+        if: github.event_name != 'pull_request'
+
+      - name: Upload Binaries Cardputer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bruce-m5stack-cardputer
+          path: .pio/build/m5stack-cardputer/Bruce*.bin
+        if: github.event_name != 'pull_request'
+
+      - name: Upload Binaries ESP32 WROOM OLED
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bruce-esp32-wroom-oled
+          path: .pio/build/esp32-wroom-oled/Bruce*.bin
+        if: github.event_name != 'pull_request'
+        
