@@ -34,8 +34,8 @@ jobs:
         with:
           path: |
             ~/.platformio
-          key: ${{ runner.os }}-pio-v3-${{ hashFiles('**/platformio.ini') }}
-          restore-keys: ${{ runner.os }}-pio-v3-
+          key: ${{ runner.os }}-pio-v4-${{ hashFiles('**/platformio.ini') }}
+          restore-keys: ${{ runner.os }}-pio-v4-
 
       - name: Install dependencies
         run: pip install requests esptool
@@ -45,7 +45,7 @@ jobs:
           pip install platformio
           platformio update
           
-          # Garante o download limpo de todas as dependências do platformio.ini
+          # Descarrega as dependências de forma limpa
           pio pkg install
           
           esp32_file="$HOME/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/lib/libnet80211.a"
@@ -54,7 +54,6 @@ jobs:
           esp32_file_temp="$HOME/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/lib/libnet80211_temp.a"
           esp32s3_file_temp="$HOME/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32s3/lib/libnet80211_temp.a"
           
-          # Definir caminhos para as ferramentas objcopy
           toolchain_esp32="$HOME/.platformio/packages/toolchain-xtensa-esp32/xtensa-esp32-elf/bin/objcopy"
           toolchain_esp32s3="$HOME/.platformio/packages/toolchain-xtensa-esp32s3/xtensa-esp32s3-elf/bin/objcopy"
           
@@ -74,57 +73,83 @@ jobs:
               mv "$esp32s3_file_temp" "$esp32s3_file"
               echo "Patch aplicado com sucesso."
           else
-              echo "Aviso: Arquivos de patch não modificados nesta etapa preliminar. O PlatformIO cuidará disso no build."
+              echo "Aviso: Arquivos base prontos para compilação."
           fi
 
       - name: Build Project
         run: |
           platformio run
 
-      - name: Merge output binaries files
+      - name: Process, Merge and Separate Binaries
         run: |
-          esptool.py --chip esp32 merge_bin -o .pio/build/m5stack-cplus1_1/release.bin --flash_mode dio --flash_size 4MB 0x1000 .pio/build/m5stack-cplus1_1/bootloader.bin 0x8000 .pio/build/m5stack-cplus1_1/partitions.bin 0x10000 .pio/build/m5stack-cplus1_1/firmware.bin
-          esptool.py --chip esp32 merge_bin -o .pio/build/m5stack-cplus2/release.bin --flash_mode dio --flash_size 8MB 0x1000 .pio/build/m5stack-cplus2/bootloader.bin 0x8000 .pio/build/m5stack-cplus2/partitions.bin 0x10000 .pio/build/m5stack-cplus2/firmware.bin
-          esptool.py --chip esp32s3 merge_bin -o .pio/build/m5stack-cardputer/release.bin --flash_mode dio --flash_size 8MB 0x0000 .pio/build/m5stack-cardputer/bootloader.bin 0x8000 .pio/build/m5stack-cardputer/partitions.bin 0x10000 .pio/build/m5stack-cardputer/firmware.bin
-          esptool.py --chip esp32 merge_bin -o .pio/build/esp32-wroom-oled/release.bin --flash_mode dio --flash_size 4MB 0x1000 .pio/build/esp32-wroom-oled/bootloader.bin 0x8000 .pio/build/esp32-wroom-oled/partitions.bin 0x10000 .pio/build/esp32-wroom-oled/firmware.bin
-
-      - name: Rename release.bin files
-        run: |
-          for file in $(find .pio/build/**/ -name 'release.bin'); do
-            version=$(echo ${{ github.run_number }})
-            env=$(basename $(dirname "$file"))
-            new_name="Bruce_${env}_v0.0.$version.bin"
-            mv "$file" "$(dirname "$file")/$new_name"
+          mkdir -p build_outputs
+          version="v0.0.${{ github.run_number }}"
+          
+          # Caminho padrão do boot_app0.bin dentro do framework instalado
+          boot_app0_src="$HOME/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin"
+          
+          for env_dir in .pio/build/*/; do
+            if [ -d "$env_dir" ]; then
+              env_name=$(basename "$env_dir")
+              echo "----------------------------------------"
+              echo "Processando arquivos para: $env_name"
+              
+              bootloader="$env_dir/bootloader.bin"
+              partitions="$env_dir/partitions.bin"
+              firmware="$env_dir/firmware.bin"
+              
+              if [[ -f "$bootloader" && -f "$partitions" && -f "$firmware" ]]; then
+                # Identifica as configurações de memória da placa
+                if [[ "$env_name" == *"s3"* || "$env_name" == *"cardputer"* ]]; then
+                  chip="esp32s3"
+                  offset="0x0000"
+                  flash_size="8MB"
+                elif [[ "$env_name" == *"cplus2"* ]]; then
+                  chip="esp32"
+                  offset="0x1000"
+                  flash_size="8MB"
+                else
+                  chip="esp32"
+                  offset="0x1000"
+                  flash_size="4MB"
+                fi
+                
+                # 1. Copia o Bootloader separado
+                cp "$bootloader" "build_outputs/Bruce_${env_name}_${version}_bootloader.bin"
+                
+                # 2. Copia a Partition separado
+                cp "$partitions" "build_outputs/Bruce_${env_name}_${version}_partitions.bin"
+                
+                # 3. Copia o boot_app0 (O arquivo "boot" / "otadata") se ele existir
+                if [ -f "$boot_app0_src" ]; then
+                  cp "$boot_app0_src" "build_outputs/Bruce_${env_name}_${version}_boot_app0.bin"
+                  boot_app0_param="0xe000 $boot_app0_src"
+                else
+                  echo "Aviso: boot_app0.bin não encontrado no caminho padrão."
+                  boot_app0_param=""
+                fi
+                
+                # 4. Copia o Firmware principal separado
+                cp "$firmware" "build_outputs/Bruce_${env_name}_${version}_firmware.bin"
+                
+                # 5. Cria e salva a versão mesclada (completa contendo todos os 4)
+                echo "Mesclando todos os arquivos no binário unificado..."
+                esptool.py --chip $chip merge_bin -o "$env_dir/release.bin" --flash_mode dio --flash_size $flash_size $offset "$bootloader" 0x8000 "$partitions" $boot_app0_param 0x10000 "$firmware"
+                mv "$env_dir/release.bin" "build_outputs/Bruce_${env_name}_${version}_full_merged.bin"
+                
+                echo "Sucesso: Exportados todos os ficheiros para $env_name"
+              else
+                echo "Arquivos essenciais não encontrados para $env_name. Pulando..."
+              fi
+            fi
           done
-          chmod +r .pio/build/**/Bruce*.bin
-          ls .pio/build/**/Bruce*.bin
+          chmod -R +r build_outputs/
         if: github.event_name != 'pull_request'
 
-      - name: Upload Binaries M5Stack CPlus
+      - name: Upload All Binaries (Unified Pack)
         uses: actions/upload-artifact@v4
         with:
-          name: Bruce-m5stack-cplus1_1
-          path: .pio/build/m5stack-cplus1_1/Bruce*.bin
-        if: github.event_name != 'pull_request'
-
-      - name: Upload Binaries M5Stack CPlus2
-        uses: actions/upload-artifact@v4
-        with:
-          name: Bruce-m5stack-cplus2
-          path: .pio/build/m5stack-cplus2/Bruce*.bin
-        if: github.event_name != 'pull_request'
-
-      - name: Upload Binaries Cardputer
-        uses: actions/upload-artifact@v4
-        with:
-          name: Bruce-m5stack-cardputer
-          path: .pio/build/m5stack-cardputer/Bruce*.bin
-        if: github.event_name != 'pull_request'
-
-      - name: Upload Binaries ESP32 WROOM OLED
-        uses: actions/upload-artifact@v4
-        with:
-          name: Bruce-esp32-wroom-oled
-          path: .pio/build/esp32-wroom-oled/Bruce*.bin
+          name: Bruce-Firmwares-v0.0.${{ github.run_number }}
+          path: build_outputs/
         if: github.event_name != 'pull_request'
         
