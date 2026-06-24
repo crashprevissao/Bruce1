@@ -6,6 +6,54 @@
 #include "modules/others/webInterface.h" // for server
 #include <JPEGDecoder.h>
 
+// Definições de compatibilidade para Tela OLED Monocromática 0.96" (128x64)
+#ifdef USE_OLED_096
+  #include <Adafruit_GFX.h>
+  #include <Adafruit_SSD1306.h>
+  
+  #define O_COLOR(c) (((c) == 0) ? 0 : 1)
+  #undef FM
+  #undef FP
+  #undef FG
+  #define FM 1
+  #define FP 1
+  #define FG 1
+
+  // Funções Auxiliares locais para Alinhamento de Texto e Renderização no OLED
+  inline void oledDrawCentreString(const char* text, int16_t x, int16_t y) {
+    int16_t x1, y1;
+    uint16_t w, h;
+    tft.getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
+    tft.setCursor(x - w / 2, y);
+    tft.print(text);
+  }
+  inline void oledDrawCentreString(String text, int16_t x, int16_t y) {
+    oledDrawCentreString(text.c_str(), x, y);
+  }
+  inline void oledDrawRightString(String text, int16_t x, int16_t y) {
+    int16_t x1, y1;
+    uint16_t w, h;
+    tft.getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
+    tft.setCursor(x - w, y);
+    tft.print(text);
+  }
+  inline void oledPushImage(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t* data) {
+    for(int16_t j=0; j<h; j++) {
+      for(int16_t i=0; i<w; i++) {
+        uint16_t color = data[j*w + i];
+        uint8_t r = ((color >> 11) & 0x1F);
+        uint8_t g = ((color >> 5) & 0x3F);
+        uint8_t b = (color & 0x1F);
+        if((r + g + b) > 25) { // Threshold de brilho para converter RGB565 em Monocromático
+          tft.drawPixel(x + i, y + j, 1);
+        } else {
+          tft.drawPixel(x + i, y + j, 0);
+        }
+      }
+    }
+  }
+#endif
+
 #define MAX_MENU_SIZE (int)(tftHeight/25)
 
 /***************************************************************************************
@@ -18,13 +66,25 @@ void displayScrollingText(const String& text, Opt_Coord& coord) {
   int scrollLen = len + 8; // Full text plus space buffer
   static int i=0;
   static long _lastmillis=0;
+  
+  #ifdef USE_OLED_096
+  tft.setTextColor(O_COLOR(coord.fgcolor), O_COLOR(coord.bgcolor));
+  #else
   tft.setTextColor(coord.fgcolor,coord.bgcolor);
+  #endif
+
   if (len < coord.size) {
     // Text fits within limit, no scrolling needed
     return;
   } else if(millis()>_lastmillis+200) {
     String scrollingPart = displayText.substring(i, i + (coord.size - 1)); // Display charLimit characters at a time
+    
+    #ifdef USE_OLED_096
+    tft.fillRect(coord.x, coord.y, (coord.size-1) * LW * tft.textsize, LH * tft.textsize, O_COLOR(bruceConfig.bgColor)); // Clear display area
+    #else
     tft.fillRect(coord.x, coord.y, (coord.size-1) * LW * tft.textsize, LH * tft.textsize, bruceConfig.bgColor); // Clear display area
+    #endif
+
     tft.setCursor(coord.x, coord.y);
     tft.setCursor(coord.x, coord.y);
     tft.print(scrollingPart);
@@ -32,6 +92,10 @@ void displayScrollingText(const String& text, Opt_Coord& coord) {
     _lastmillis=millis();
     i++;
     if(i==1) _lastmillis=millis()+1000;
+    
+    #ifdef USE_OLED_096
+    tft.display();
+    #endif
   }
 }
 
@@ -40,24 +104,42 @@ void displayScrollingText(const String& text, Opt_Coord& coord) {
 ** Description:   Draw touch screen footer
 ***************************************************************************************/
 void TouchFooter(uint16_t color) {
+  #ifdef USE_OLED_096
+  tft.setTextColor(O_COLOR(color));
+  tft.setTextSize(1);
+  oledDrawCentreString("PREV", tftWidth/6, tftHeight - 10);
+  oledDrawCentreString("SEL", tftWidth/2, tftHeight - 10);
+  oledDrawCentreString("NEXT", 5*tftWidth/6, tftHeight - 10);
+  tft.display();
+  #else
   tft.drawRoundRect(5,tftHeight+2,tftWidth-10,43,5,color);
   tft.setTextColor(color);
   tft.setTextSize(FM);
   tft.drawCentreString("PREV",tftWidth/6,tftHeight+4,1);
   tft.drawCentreString("SEL",tftWidth/2,tftHeight+4,1);
   tft.drawCentreString("NEXT",5*tftWidth/6,tftHeight+4,1);
+  #endif
 }
 /***************************************************************************************
 ** Function name: TouchFooter
 ** Description:   Draw touch screen footer
 ***************************************************************************************/
 void MegaFooter(uint16_t color) {
+  #ifdef USE_OLED_096
+  tft.setTextColor(O_COLOR(color));
+  tft.setTextSize(1);
+  oledDrawCentreString("Exit", tftWidth/6, tftHeight - 10);
+  oledDrawCentreString("UP", tftWidth/2, tftHeight - 10);
+  oledDrawCentreString("DOWN", 5*tftWidth/6, tftHeight - 10);
+  tft.display();
+  #else
   tft.drawRoundRect(5,tftHeight+2,tftWidth-10,43,5,color);
   tft.setTextColor(color);
   tft.setTextSize(FM);
   tft.drawCentreString("Exit",tftWidth/6,tftHeight+4,1);
   tft.drawCentreString("UP",tftWidth/2,tftHeight+4,1);
   tft.drawCentreString("DOWN",5*tftWidth/6,tftHeight+4,1);
+  #endif
 }
 
 /***************************************************************************************
@@ -66,9 +148,15 @@ void MegaFooter(uint16_t color) {
 ***************************************************************************************/
 void resetTftDisplay(int x, int y, uint16_t fc, int size, uint16_t bg, uint16_t screen) {
     tft.setCursor(x,y);
+    #ifdef USE_OLED_096
+    tft.fillScreen(O_COLOR(screen));
+    tft.setTextSize(1);
+    tft.setTextColor(O_COLOR(fc), O_COLOR(bg));
+    #else
     tft.fillScreen(screen);
     tft.setTextSize(size);
     tft.setTextColor(fc,bg);
+    #endif
 }
 
 /***************************************************************************************
@@ -79,8 +167,13 @@ void setTftDisplay(int x, int y, uint16_t fc, int size, uint16_t bg) {
     if (x>=0 && y<0)        tft.setCursor(x,tft.getCursorY());          // if -1 on x, sets only y
     else if (x<0 && y>=0)   tft.setCursor(tft.getCursorX(),y);          // if -1 on y, sets only x
     else if (x>=0 && y>=0)  tft.setCursor(x,y);                         // if x and y > 0, sets both
+    #ifdef USE_OLED_096
+    tft.setTextSize(1);
+    tft.setTextColor(O_COLOR(fc), O_COLOR(bg));
+    #else
     tft.setTextSize(size);
     tft.setTextColor(fc,bg);
+    #endif
 }
 
 void turnOffDisplay() {
@@ -114,6 +207,15 @@ void displayRedStripe(String text, uint16_t fgcolor, uint16_t bgcolor) {
 
     int size;
     if(fgcolor==bgcolor && fgcolor==TFT_WHITE) fgcolor=TFT_BLACK;
+    
+    #ifdef USE_OLED_096
+    size = 1;
+    tft.fillRect(2, 20, tftWidth-4, 24, O_COLOR(bgcolor));
+    tft.setTextColor(O_COLOR(fgcolor), O_COLOR(bgcolor));
+    tft.setTextSize(1);
+    oledDrawCentreString(text, tftWidth/2, 28);
+    tft.display();
+    #else
     if(text.length()*LW*FM<(tftWidth-2*FM*LW)) size = FM;
     else size = FP;
     tft.fillSmoothRoundRect(10,tftHeight/2-13,tftWidth-20,26,7,bgcolor);
@@ -128,9 +230,22 @@ void displayRedStripe(String text, uint16_t fgcolor, uint16_t bgcolor) {
       tft.setCursor(tftWidth/2 - FP*3*text.length(), tftHeight/2-8);
     }
     tft.println(text);
+    #endif
 }
 
 void drawButton(int32_t x, int32_t y, int32_t w, int32_t h, uint32_t color, const char *text, bool inverted = false) {
+  #ifdef USE_OLED_096
+  if (inverted) {
+    tft.fillRoundRect(x, y, w, h, 2, O_COLOR(color));
+  } else {
+    tft.fillRoundRect(x, y, w, h, 2, 0);
+    tft.drawRoundRect(x, y, w, h, 2, O_COLOR(color));
+  }
+  tft.setTextColor(inverted ? 0 : 1);
+  tft.setTextSize(1);
+  oledDrawCentreString(text, x + w / 2, y + 2);
+  tft.display();
+  #else
   if (inverted) {
     tft.fillRoundRect(x, y, w, h, 5, color);
   } else {
@@ -139,6 +254,7 @@ void drawButton(int32_t x, int32_t y, int32_t w, int32_t h, uint32_t color, cons
   }
   tft.setTextColor(inverted ? TFT_BLACK : color);
   tft.drawString(text, x + w / 2, y + h);
+  #endif
 }
 
 int8_t displayMessage(
@@ -149,18 +265,27 @@ int8_t displayMessage(
   uint16_t color
 ) {
 #ifdef HAS_SCREEN
+  #ifndef USE_OLED_096
   uint8_t oldTextDatum = tft.getTextDatum();
+  #endif
 #endif
 
+  #ifdef USE_OLED_096
+  tft.fillScreen(0);
+  tft.setTextColor(O_COLOR(color));
+  tft.setTextSize(1);
+  oledDrawCentreString(message, tftWidth / 2, 10);
+  #else
   tft.setTextColor(color);
   tft.setTextSize(FM);
   tft.setTextDatum(TC_DATUM);
   tft.drawString(message, tftWidth / 2, tftHeight / 2 - 20);
-
   tft.setTextDatum(BC_DATUM);
-  int16_t buttonHeight = 20;
-  int16_t buttonY = tftHeight - buttonHeight - 5;
-  int16_t buttonWidth = tftWidth / 3 - 10;
+  #endif
+
+  int16_t buttonHeight = 14; 
+  int16_t buttonY = tftHeight - buttonHeight - 2;
+  int16_t buttonWidth = tftWidth / 3 - 4;
 
   int8_t totalButtons = (leftButton ? 1 : 0) + (centerButton ? 1 : 0) + (rightButton ? 1 : 0);
   int8_t selected = 0; // Start at first available button
@@ -183,27 +308,35 @@ int8_t displayMessage(
     int8_t index = 0;
 
     if (redraw) {
+      #ifdef USE_OLED_096
+      tft.fillRect(0, buttonY - 1, tftWidth, buttonHeight + 3, 0);
+      #endif
       if (leftButton) {
-        drawButton(5, buttonY, buttonWidth, buttonHeight, color, leftButton, selected == index);
+        drawButton(2, buttonY, buttonWidth, buttonHeight, color, leftButton, selected == index);
         index++;
       }
 
       if (centerButton) {
-        drawButton(tftWidth / 3 + 5, buttonY, buttonWidth, buttonHeight, color, centerButton, selected == index);
+        drawButton(tftWidth / 3 + 2, buttonY, buttonWidth, buttonHeight, color, centerButton, selected == index);
         index++;
       }
 
       if (rightButton) {
-        drawButton(tftWidth * 2 / 3 + 5, buttonY, buttonWidth, buttonHeight, color, rightButton, selected == index);
+        drawButton(tftWidth * 2 / 3 + 2, buttonY, buttonWidth, buttonHeight, color, rightButton, selected == index);
       }
       redraw = false;
+      #ifdef USE_OLED_096
+      tft.display();
+      #endif
     }
 
     delay(10);
   }
 
 #ifdef HAS_SCREEN
+  #ifndef USE_OLED_096
   tft.setTextDatum(oldTextDatum);
+  #endif
 #endif
 
   return selected;
@@ -224,7 +357,11 @@ void displayWarning(String txt, bool waitKeyPress) {
     Serial.println("WARN: " + txt);
     return;
   #endif
+  #ifdef USE_OLED_096
+  displayRedStripe(txt, 0, 1);
+  #else
   displayRedStripe(txt, TFT_BLACK,TFT_YELLOW);
+  #endif
   delay(200);
   while(waitKeyPress && !check(AnyKeyPress)) delay(100);
 }
@@ -234,8 +371,11 @@ void displayInfo(String txt, bool waitKeyPress)    {
     Serial.println("INFO: " + txt);
     return;
   #endif
-  // todo: add newlines to txt if too long
+  #ifdef USE_OLED_096
+  displayRedStripe(txt, 1, 0);
+  #else
   displayRedStripe(txt, TFT_WHITE, TFT_BLUE);
+  #endif
   delay(200);
   while(waitKeyPress && !check(AnyKeyPress)) delay(100);
 }
@@ -245,8 +385,11 @@ void displaySuccess(String txt, bool waitKeyPress) {
     Serial.println("SUCCESS: " + txt);
     return;
   #endif
-  // todo: add newlines to txt if too long
+  #ifdef USE_OLED_096
+  displayRedStripe(txt, 1, 0);
+  #else
   displayRedStripe(txt, TFT_WHITE, TFT_DARKGREEN);
+  #endif
   delay(200);
   while(waitKeyPress && !check(AnyKeyPress)) delay(100);
 }
@@ -256,8 +399,11 @@ void displayTextLine(String txt, bool waitKeyPress) {
     Serial.println("MESSAGE: " + txt);
     return;
   #endif
-  // todo: add newlines to txt if too long
+  #ifdef USE_OLED_096
+  displayRedStripe(txt, 1, 0);
+  #else
   displayRedStripe(txt, getComplementaryColor2(bruceConfig.priColor), bruceConfig.priColor);
+  #endif
   delay(200);
   while(waitKeyPress && !check(AnyKeyPress)) delay(100);
 }
@@ -417,8 +563,15 @@ int loopOptions(std::vector<Option>& options, bool bright, bool submenu, const c
   int menuSize = options.size();
   if(options.size()>MAX_MENU_SIZE) {
     menuSize = MAX_MENU_SIZE;
-    }
+  }
+  
+  #ifdef USE_OLED_096
+  if(index>0) tft.fillRoundRect(2, 12, tftWidth-4, tftHeight-24, 3, 0);
+  #define LOOP_OP_RECT_OLED
+  #else
   if(index>0) tft.fillRoundRect(tftWidth*0.10,tftHeight/2-menuSize*(FM*8+4)/2 -5,tftWidth*0.8,(FM*8+4)*menuSize+10,5,bruceConfig.bgColor);
+  #endif
+
   if(index>=options.size()) index=0;
   bool first=true;
   drawMainBorder();
@@ -432,6 +585,9 @@ int loopOptions(std::vector<Option>& options, bool bright, bool submenu, const c
         else setBrightness(bruceConfig.bright,false);               // if "Main Menu", bv==0, return brightness to default
       }
       redraw=false;
+      #ifdef USE_OLED_096
+      tft.display();
+      #endif
       if(first) while(SelPress) delay(100); // to avoid miss click due to heavy fingers
     }
     if(!submenu) {
@@ -446,7 +602,13 @@ int loopOptions(std::vector<Option>& options, bool bright, bool submenu, const c
       redraw = true;
     #else
     long _tmp=millis();
-    while(check(PrevPress)) { if(millis()-_tmp>200) tft.drawArc(tftWidth/2, tftHeight/2, 25,15,0,360*(millis()-(_tmp+200))/500,getColorVariation(bruceConfig.priColor),bruceConfig.bgColor); }
+    while(check(PrevPress)) { 
+      #ifdef USE_OLED_096
+      if(millis()-_tmp>200) { tft.drawCircle(tftWidth/2, tftHeight/2, 5, 1); tft.display(); }
+      #else
+      if(millis()-_tmp>200) tft.drawArc(tftWidth/2, tftHeight/2, 25,15,0,360*(millis()-(_tmp+200))/500,getColorVariation(bruceConfig.priColor),bruceConfig.bgColor); 
+      #endif
+    }
     if(millis()-_tmp>700) { // longpress detected to exit
       break;
     }
@@ -500,13 +662,24 @@ int loopOptions(std::vector<Option>& options, bool bright, bool submenu, const c
 ** Dependencia: prog_handler =>>    0 - Flash, 1 - LittleFS
 ***************************************************************************************/
 void progressHandler(int progress, size_t total, String message) {
-  int barWidth = map(progress, 0, total, 0, 200);
-  if(barWidth <3) {
+  int barWidth = map(progress, 0, total, 0, tftWidth - 40);
+  #ifdef USE_OLED_096
+  if(progress == 0 || barWidth < 3) {
+    tft.fillRect(2, 12, tftWidth-4, tftHeight-14, 0);
+    tft.drawRect(10, tftHeight - 20, tftWidth - 20, 10, 1);
+    oledDrawCentreString(message, tftWidth/2, 15);
+  }
+  tft.fillRect(12, tftHeight - 18, barWidth, 6, 1);
+  tft.display();
+  #else
+  int origBarWidth = map(progress, 0, total, 0, 200);
+  if(origBarWidth <3) {
     tft.fillRect(6, 27, tftWidth-12, tftHeight-33, bruceConfig.bgColor);
     tft.drawRect(18, tftHeight - 47, 204, 17, bruceConfig.priColor);
     displayRedStripe(message, TFT_WHITE, bruceConfig.priColor);
   }
-  tft.fillRect(20, tftHeight - 45, barWidth, 13, bruceConfig.priColor);
+  tft.fillRect(20, tftHeight - 45, origBarWidth, 13, bruceConfig.priColor);
+  #endif
 }
 
 /***************************************************************************************
@@ -518,8 +691,47 @@ Opt_Coord drawOptions(int index,std::vector<Option>& options, uint16_t fgcolor, 
     int menuSize = options.size();
     if(options.size()>MAX_MENU_SIZE) {
       menuSize = MAX_MENU_SIZE;
-      }
+    }
 
+    #ifdef USE_OLED_096
+    if(index==0) tft.fillRect(2, 12, tftWidth-4, tftHeight-24, 0);
+    tft.setTextColor(1, 0);
+    tft.setTextSize(1);
+    
+    int i=0;
+    int init = 0;
+    int cont = 1;
+    menuSize = options.size();
+    if(index>=MAX_MENU_SIZE) init=index-MAX_MENU_SIZE+1;
+    
+    tft.setCursor(6, 14);
+    for(i=0;i<menuSize;i++) {
+      if(i>=init) {
+        if(options[i].selected) tft.setTextColor(1, 0);
+        else tft.setTextColor(1, 0);
+
+        String text="";
+        if(i==index) {
+          text+=">";
+          coord.x=6 + LW;
+          coord.y=tft.getCursorY();
+          coord.size=(tftWidth - 12)/LW - 1;
+          coord.fgcolor=1;
+          coord.bgcolor=0;
+        }
+        else text +=" ";
+        text += String(options[i].label);
+        tft.setCursor(6, tft.getCursorY());
+        tft.println(text.substring(0, (tftWidth - 12)/LW - 1));
+        cont++;
+      }
+      if(cont>MAX_MENU_SIZE) goto Exit;
+    }
+    Exit:
+    tft.drawRect(2, 12, tftWidth-4, tftHeight-24, 1);
+    tft.display();
+    return coord;
+    #else
     if(index==0) tft.fillRoundRect(tftWidth*0.10,tftHeight/2-menuSize*(FM*8+4)/2 -5,tftWidth*0.8,(FM*8+4)*menuSize+10,5,bgcolor);
 
     tft.setTextColor(fgcolor,bgcolor);
@@ -552,23 +764,43 @@ Opt_Coord drawOptions(int index,std::vector<Option>& options, uint16_t fgcolor, 
         tft.println(text.substring(0,(tftWidth*0.8 - 10)/(LW*FM) - 1));
         cont++;
       }
-      if(cont>MAX_MENU_SIZE) goto Exit;
+      if(cont>MAX_MENU_SIZE) goto ExitOrig;
     }
-    Exit:
+    ExitOrig:
     if(options.size()>MAX_MENU_SIZE) menuSize = MAX_MENU_SIZE;
     tft.drawRoundRect(tftWidth*0.10,tftHeight/2-menuSize*(FM*8+4)/2 -5,tftWidth*0.8,(FM*8+4)*menuSize+10,5,fgcolor);
     #if defined(HAS_TOUCH)
     TouchFooter();
     #endif
     return coord;
+    #endif
 }
 
 /***************************************************************************************
-** Function name: drawOptions
+** Function name: drawSubmenu
 ** Description:   Função para desenhar e mostrar as opçoes de contexto
 ***************************************************************************************/
 void drawSubmenu(int index, std::vector<Option>& options, const char *title) {
     int menuSize = options.size();
+    #ifdef USE_OLED_096
+    tft.setTextColor(1, 0);
+    tft.setTextSize(1);
+    tft.fillRect(2, 12, tftWidth-4, tftHeight-24, 0);
+    oledDrawCentreString(title, tftWidth/2, 14);
+
+    const char *firstOption = index - 1 >= 0 ? options[index - 1].label : options[menuSize - 1].label;
+    tft.setTextColor(1);
+    oledDrawCentreString(firstOption, tftWidth/2, 24);
+
+    tft.setTextColor(1);
+    oledDrawCentreString(options[index].label, tftWidth/2, 34);
+
+    const char *thirdOption = index + 1 < menuSize ? options[index+1].label : options[0].label;
+    oledDrawCentreString(thirdOption, tftWidth/2, 44);
+
+    tft.drawFastHLine(4, 33, tftWidth-8, 1);
+    tft.display();
+    #else
     tft.setTextColor(bruceConfig.priColor,bruceConfig.bgColor);
     tft.setTextSize(FP);
     tft.setTextColor(bruceConfig.priColor);
@@ -619,16 +851,28 @@ void drawSubmenu(int index, std::vector<Option>& options, const char *title) {
     tft.drawString("[ x ]",7,7,1);
     TouchFooter();
     #endif
-
+    #endif
 }
 
 void drawStatusBar() {
   int i=0;
   uint8_t bat = getBattery();
-  uint8_t bat_margin = 85;
+  uint8_t bat_margin = 40;
   if(bat>0) {
     drawBatteryStatus(bat);
-  } else bat_margin = 20;
+  } else bat_margin = 10;
+  
+  #ifdef USE_OLED_096
+  tft.setTextColor(1, 0); tft.setTextSize(1);
+  if(sdcardMounted) { oledDrawRightString("SD", tftWidth - (bat_margin + 12*i), 2); i++; } 
+  if(gpsConnected) { oledDrawRightString("G", tftWidth - (bat_margin + 12*i), 2); i++; }
+  if(wifiConnected) { oledDrawRightString("W", tftWidth - (bat_margin + 12*i), 2); i++;}               
+  if(isWebUIActive) { oledDrawRightString("WEB", tftWidth - (bat_margin + 12*i), 2); i++;}               
+  if(BLEConnected) { oledDrawRightString("B", tftWidth - (bat_margin + 12*i), 2); i++; }       
+  
+  tft.drawRect(0, 0, tftWidth, tftHeight, 1);
+  tft.drawFastHLine(0, 11, tftWidth, 1);
+  #else
   if(sdcardMounted) { tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor); tft.setTextSize(FP); tft.drawString("SD", tftWidth - (bat_margin + 20*i),12); i++; } // Indication for SD card on screen
   if(gpsConnected) { drawGpsSmall(tftWidth - (bat_margin + 20*i), 7); i++; }
   if(wifiConnected) { drawWifiSmall(tftWidth - (bat_margin + 20*i), 7); i++;}               //Draw Wifi Symbol beside battery
@@ -636,13 +880,17 @@ void drawStatusBar() {
   if(BLEConnected) { drawBLESmall(tftWidth - (bat_margin + 20*i), 7); i++; }       //Draw BLE beside Wifi
   if(isConnectedWireguard) { drawWireguardStatus(tftWidth - (bat_margin + 21*i), 7); i++; }//Draw Wg bedide BLE, if the others exist, if not, beside battery
 
-
   if(bruceConfig.theme.border) {
     tft.drawRoundRect(5, 5, tftWidth - 10, tftHeight - 10, 5, bruceConfig.priColor);
     tft.drawLine(5, 25, tftWidth - 6, 25, bruceConfig.priColor);
   }
+  #endif
 
   if (clock_set) {
+      #ifdef USE_OLED_096
+      tft.setCursor(4, 2);
+      tft.print(timeStr);
+      #else
       setTftDisplay(12, 12, bruceConfig.priColor, 1, bruceConfig.bgColor);
     #if defined(HAS_RTC)
       _rtc.GetTime(&_time);
@@ -652,21 +900,35 @@ void drawStatusBar() {
       updateTimeStr(rtc.getTimeStruct());
       tft.print(timeStr);
     #endif
+      #endif
   } else {
+    #ifdef USE_OLED_096
+    tft.setCursor(4, 2);
+    tft.print("BRUCE");
+    #else
     setTftDisplay(12, 12, bruceConfig.priColor, 1, bruceConfig.bgColor);
     tft.print("BRUCE " + String(BRUCE_VERSION));
+    #endif
   }
+  
+  #ifdef USE_OLED_096
+  tft.display();
+  #endif
 }
 
 void drawMainBorder(bool clear) {
     if(clear){
+      #ifdef USE_OLED_096
+      tft.fillScreen(0);
+      #else
       tft.drawPixel(0,0,0);
       tft.fillScreen(bruceConfig.bgColor);
+      #endif
     }
+    #ifndef USE_OLED_096
     setTftDisplay(12, 12, bruceConfig.priColor, 1, bruceConfig.bgColor);
     tft.setTextDatum(0);
-
-    // if(wifiConnected) {tft.print(timeStr);} else {tft.print("BRUCE 1.0b");}
+    #endif
 
     drawStatusBar();
 
@@ -681,6 +943,12 @@ void drawMainBorderWithTitle(String title, bool clear) {
 }
 
 void printTitle(String title) {
+  #ifdef USE_OLED_096
+  tft.setTextSize(1);
+  tft.setTextColor(1, 0);
+  oledDrawCentreString(title, tftWidth / 2, 14);
+  tft.display();
+  #else
   tft.setCursor((tftWidth - (title.length() * FM*LW)) / 2, BORDER_PAD_Y);
   tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
   tft.setTextSize(FM);
@@ -689,9 +957,16 @@ void printTitle(String title) {
   tft.println(title);
 
   tft.setTextSize(FP);
+  #endif
 }
 
 void printSubtitle(String subtitle, bool withLine) {
+  #ifdef USE_OLED_096
+  tft.setTextSize(1);
+  tft.setTextColor(1, 0);
+  oledDrawCentreString(subtitle, tftWidth / 2, 24);
+  tft.display();
+  #else
   int16_t cursorX = (tftWidth - (subtitle.length() * FP*LW)) / 2;
   tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
   tft.setTextSize(FP);
@@ -706,13 +981,19 @@ void printSubtitle(String subtitle, bool withLine) {
     tft.setCursor(cursorX, tft.getCursorY());
     tft.println(line);
   }
+  #endif
 }
 
 void printFootnote(String text) {
+  #ifdef USE_OLED_096
+  tft.setTextSize(1);
+  oledDrawRightString(text, tftWidth - 4, tftHeight - 10);
+  tft.display();
+  #else
   tft.setTextSize(FP);
   tft.drawRightString(text, tftWidth-BORDER_PAD_X, tftHeight-BORDER_PAD_X-FP*LH, SMOOTH_FONT);
+  #endif
 }
-
 /***************************************************************************************
 ** Function name: getBattery()
 ** Description:   Delivers the battery value from 1-100
@@ -731,6 +1012,10 @@ int getBattery() {
 ***************************************************************************************/
 void drawBatteryStatus(uint8_t bat) {
     if(bat==0) return;
+    #ifdef USE_OLED_096
+    tft.drawRect(tftWidth - 20, 2, 16, 7, 1);
+    tft.fillRect(tftWidth - 19, 3, (14 * bat) / 100, 5, 1);
+    #else
     tft.drawRoundRect(tftWidth - 42, 7, 34, 17, 2, bruceConfig.priColor);
     tft.setTextSize(FP);
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
@@ -738,6 +1023,7 @@ void drawBatteryStatus(uint8_t bat) {
     tft.fillRoundRect(tftWidth - 40, 9, 30 * bat / 100, 13, 2, bruceConfig.priColor);
     tft.drawLine(tftWidth - 30, 9, tftWidth - 30, 9 + 13, bruceConfig.bgColor);
     tft.drawLine(tftWidth - 20, 9, tftWidth - 20, 9 + 13, bruceConfig.bgColor);
+    #endif
 }
 
 /***************************************************************************************
@@ -745,6 +1031,9 @@ void drawBatteryStatus(uint8_t bat) {
 ** Description:   Draws a padlock when connected
 ***************************************************************************************/
 void drawWireguardStatus(int x, int y) {
+  #ifdef USE_OLED_096
+  tft.drawRect(x, y, 6, 6, 1);
+  #else
   tft.fillRect(x,y,20,17,bruceConfig.bgColor);
     if(isConnectedWireguard){
         tft.drawRoundRect(10+x, 0+y, 10, 16, 5, TFT_GREEN);
@@ -754,7 +1043,7 @@ void drawWireguardStatus(int x, int y) {
     tft.fillRoundRect(0+x, 12+y, 10, 5, 0, bruceConfig.bgColor);
     tft.fillRoundRect(10+x, 12+y, 10, 5, 0, bruceConfig.priColor);
     }
-
+  #endif
 }
 
 /***************************************************************************************
@@ -765,8 +1054,50 @@ void drawWireguardStatus(int x, int y) {
 Opt_Coord listFiles(int index, std::vector<FileList> fileList) {
     Opt_Coord coord;
     if(index==0){
+      #ifdef USE_OLED_096
+      tft.fillScreen(0);
+      #else
       tft.fillScreen(bruceConfig.bgColor);
+      #endif
     }
+    
+    #ifdef USE_OLED_096
+    tft.setCursor(4, 14);
+    tft.setTextSize(1);
+    int i=0;
+    int arraySize = fileList.size();
+    int start=0;
+    if(index>=MAX_ITEMS) {
+        start=index-MAX_ITEMS+1;
+        if(start<0) start=0;
+    }
+    int nchars = (tftWidth-8)/6;
+    String txt=">";
+    while(i<arraySize) {
+        if(i>=start) {
+            tft.setCursor(4, tft.getCursorY());
+            tft.setTextColor(1, 0);
+
+            if (index==i) {
+              txt=">";
+              coord.x=4+LW;
+              coord.y=tft.getCursorY();
+              coord.size=nchars;
+              coord.fgcolor=1;
+              coord.bgcolor=0;
+            }
+            else txt=" ";
+            txt+=fileList[i].filename;
+            tft.println(txt.substring(0,nchars));
+        }
+        i++;
+        if (i==(start+MAX_ITEMS) || i==arraySize) break;
+    }
+    tft.drawRect(0, 12, tftWidth, tftHeight-12, 1);
+    tft.display();
+    return coord;
+    #define LIST_FILE_OLED_BLOCK
+    #else
     tft.setCursor(10,10);
     tft.setTextSize(FM);
     int i=0;
@@ -803,37 +1134,55 @@ Opt_Coord listFiles(int index, std::vector<FileList> fileList) {
     tft.drawRoundRect(5, 5, tftWidth - 10, tftHeight - 10, 5, bruceConfig.priColor);
     tft.drawRoundRect(5, 5, tftWidth - 10, tftHeight - 10, 5, bruceConfig.priColor);
     return coord;
+    #endif
 }
 
 
 // desenhos do menu principal, sprite "draw" com 80x80 pixels
 
 void drawWifiSmall(int x, int y) {
+  #ifdef USE_OLED_096
+  tft.drawCircle(x+8, y+8, 4, 1);
+  tft.drawCircle(x+8, y+8, 2, 1);
+  #else
   tft.fillRect(x,y,16,16,bruceConfig.bgColor);
   tft.fillCircle(9+x,14+y,1,bruceConfig.priColor);
   tft.drawArc(9+x,14+y,4,6,130,230,bruceConfig.priColor, bruceConfig.bgColor);
   tft.drawArc(9+x,14+y,10,12,130,230,bruceConfig.priColor, bruceConfig.bgColor);
+  #endif
 }
 
 void drawWebUISmall(int x, int y) {
+  #ifdef USE_OLED_096
+  tft.drawCircle(8 + x, 8 + y, 6, 1);
+  tft.drawFastHLine(x+2, y+8, 12, 1);
+  #else
   tft.fillRect(x, y, 16, 16, bruceConfig.bgColor);
-
   tft.drawCircle(8 + x, 8 + y, 7, bruceConfig.priColor);
-
   tft.drawLine(3 + x, 4 + y, 14 + x, 4 + y, bruceConfig.priColor);
   tft.drawLine(2 + x, 8 + y, 15 + x, 8 + y, bruceConfig.priColor);
   tft.drawLine(3 + x, 12 + y, 14 + x, 12 + y, bruceConfig.priColor);
+  #endif
 }
 
 void drawBLESmall(int x, int y) {
+  #ifdef USE_OLED_096
+  tft.drawLine(x+4, y+2, x+12, y+14, 1);
+  tft.drawLine(x+4, y+14, x+12, y+2, 1);
+  tft.drawLine(x+8, y+0, x+8, y+16, 1);
+  #else
   tft.fillRect(x,y,17,17,bruceConfig.bgColor);
   tft.drawWideLine(8+x, 8+y, 4+x, 5+y, 2, bruceConfig.priColor,bruceConfig.bgColor);
   tft.drawWideLine(8+x, 8+y, 4+x,13+y, 2, bruceConfig.priColor,bruceConfig.bgColor);
   tft.drawTriangle(8+x, 8+y, 8+x, 0+y,13+x,4+y,bruceConfig.priColor);
   tft.drawTriangle(8+x, 8+y, 8+x,16+y,13+x,12+y,bruceConfig.priColor);
+  #endif
 }
 
 void drawBLE_beacon(int x, int y, uint16_t color) {
+  #ifdef USE_OLED_096
+  tft.drawRect(x+5, y+5, 30, 70, 1);
+  #else
   tft.fillRect(x,y,40,80,bruceConfig.bgColor);
   tft.drawWideLine(40+x,53+y,2+x,26+y,5,color,bruceConfig.bgColor);
   tft.drawWideLine(40+x,26+y,2+x,53+y,5,color,bruceConfig.bgColor);
@@ -842,24 +1191,30 @@ void drawBLE_beacon(int x, int y, uint16_t color) {
   tft.drawWideLine(20+x,12+y,20+x,68+y,5,color,bruceConfig.bgColor);
   tft.fillTriangle(40+x,26+y,20+x,40+y,20+x,12+y,color);
   tft.fillTriangle(40+x,53+y,20+x,40+y,20+x,68+y,color);
+  #endif
 }
 
 void drawGPS(int x, int y) {
+  #ifdef USE_OLED_096
+  tft.drawCircle(x+40, y+40, 15, 1);
+  #else
   tft.fillRect(x,y,80,80,bruceConfig.bgColor);
   tft.drawEllipse(40+x,70+y,15,8,bruceConfig.priColor);
   tft.drawArc(40+x,25+y,23,7,0,340,bruceConfig.priColor,bruceConfig.bgColor);
   tft.fillTriangle(40+x,70+y,20+x,64+y,60+x,64+y,bruceConfig.priColor);
+  #endif
 }
 
 void drawGpsSmall(int x, int y) {
+  #ifdef USE_OLED_096
+  tft.drawCircle(x+8, y+8, 4, 1);
+  #else
   tft.fillRect(x,y,17,17,bruceConfig.bgColor);
   tft.drawEllipse(9+x,14+y,4,3,bruceConfig.priColor);
   tft.drawArc(9+x,6+y,5,2,0,340,bruceConfig.priColor,bruceConfig.bgColor);
   tft.fillTriangle(9+x,15+y,5+x,9+y,13+x,9+y,bruceConfig.priColor);
+  #endif
 }
-
-
-
 
 
 //####################################################################################################
@@ -878,8 +1233,10 @@ void jpegRender(int xpos, int ypos) {
   uint32_t max_x = JpegDec.width;
   uint32_t max_y = JpegDec.height;
 
+  #ifndef USE_OLED_096
   bool swapBytes = tft.getSwapBytes();
   tft.setSwapBytes(true);
+  #endif
 
   // Jpeg images are draw as a set of image block (tiles) called Minimum Coding Units (MCUs)
   // Typically these MCUs are 16x16 pixel blocks
@@ -897,7 +1254,12 @@ void jpegRender(int xpos, int ypos) {
   max_y += ypos;
 
   // Fetch data from the file, decode and display
+  #ifdef USE_OLED_096
+  tft.fillRect(xpos,ypos,JpegDec.width,JpegDec.height,0);
+  #else
   tft.fillRect(xpos,ypos,JpegDec.width,JpegDec.height,TFT_BLACK);
+  #endif
+
   while (JpegDec.read()) {    // While there is more data in the file
     pImg = JpegDec.pImage ;   // Decode a MCU (Minimum Coding Unit, typically a 8x8 or 16x16 pixel block)
 
@@ -934,14 +1296,24 @@ void jpegRender(int xpos, int ypos) {
     uint32_t mcu_pixels = win_w * win_h;
 
     // draw image MCU block only if it will fit on the screen
+    #ifdef USE_OLED_096
+    if (( mcu_x + win_w ) <= tftWidth && ( mcu_y + win_h ) <= tftHeight) {
+      oledPushImage(mcu_x, mcu_y, win_w, win_h, pImg);
+    }
+    #else
     if (( mcu_x + win_w ) <= tft.width() && ( mcu_y + win_h ) <= tft.height())
       tft.pushImage(mcu_x, mcu_y, win_w, win_h, pImg);
-    else if ( (mcu_y + win_h) > tft.height())
+    #endif
+    else if ( (mcu_y + win_h) > tftHeight)
       JpegDec.abort(); // Image has run off bottom of screen so abort decoding
   }
 
+  #ifndef USE_OLED_096
   tft.setSwapBytes(swapBytes);
-
+  #endif
+  #ifdef USE_OLED_096
+  tft.display();
+  #endif
 }
 
 bool showJpeg(FS fs, String filename, int x, int y, bool center) {
@@ -972,22 +1344,6 @@ bool showJpeg(FS fs, String filename, int x, int y, bool center) {
     data = picture.read();
     data_array[i] = data;
     i++;
-
-    //print array on Serial
-    /*
-    Serial.print("0x");
-    if (abs(data) < 16) {
-      Serial.print("0");
-    }
-
-    Serial.print(data, HEX);
-    Serial.print(","); // Add value and comma
-    line_len++;
-    if (line_len >= 32) {
-      line_len = 0;
-      Serial.println();
-    }
-    */
   }
 
   picture.close();
@@ -1127,8 +1483,12 @@ void Gif::GIFDraw(GIFDRAW *pDraw) {
         }
       } // while looking for opaque pixels
       if (iCount) { // any opaque pixels?
+        #ifdef USE_OLED_096
+        oledPushImage(pDraw->iX+x + position->x, y + position->y, iCount, 1, (uint16_t*)usTemp);
+        #else
         tft.drawPixel(0,0,0);
         tft.pushImage( pDraw->iX+x + position->x, y + position->y, iCount, 1, (uint16_t*)usTemp );
+        #endif
         x += iCount;
         iCount = 0;
       }
@@ -1151,8 +1511,12 @@ void Gif::GIFDraw(GIFDRAW *pDraw) {
     // Translate the 8-bit pixels through the RGB565 palette (already byte reversed)
     for (x=0; x<iWidth; x++)
       usTemp[x] = usPalette[*s++];
+    #ifdef USE_OLED_096
+    oledPushImage(pDraw->iX + position->x, y + position->y, iWidth, 1, (uint16_t*)usTemp);
+    #else
     tft.drawPixel(0,0,0);
     tft.pushImage( pDraw->iX + position->x, y + position->y, iWidth, 1, (uint16_t*)usTemp );
+    #endif
   }
 } /* GIFDraw() */
 
@@ -1241,6 +1605,7 @@ bool showGif(FS *fs, const char *filename, int x, int y, bool center, int playDu
 
   return true;
 }
+
 
 /***************************************************************************************
 ** Function name: getComplementaryColor2
@@ -1361,7 +1726,11 @@ uint32_t read32(fs::File &f) {
   return result;
 }
 bool drawBmp(FS fs, String filename, int x, int y, bool center) {
+  #ifdef USE_OLED_096
+  if (x >= tftWidth || (y >= tftHeight)) return false;
+  #else
   if ((x >= tft.width()) || (y >= tft.height())) return false;
+  #endif
   uint32_t startTime = millis();
 
   File bmpFS;
@@ -1396,8 +1765,10 @@ bool drawBmp(FS fs, String filename, int x, int y, bool center) {
     {
       y += h - 1;
 
+      #ifndef USE_OLED_096
       bool oldSwapBytes = tft.getSwapBytes();
       tft.setSwapBytes(true);
+      #endif
       bmpFS.seek(seekOffset);
 
       uint16_t padding = (4 - ((w * 3) & 3)) & 3;
@@ -1419,12 +1790,21 @@ bool drawBmp(FS fs, String filename, int x, int y, bool center) {
 
         // Push the pixel row to screen, pushImage will crop the line if needed
         // y is decremented as the BMP image is drawn bottom up
+        #ifdef USE_OLED_096
+        oledPushImage(x, y--, w, 1, (uint16_t*)lineBuffer);
+        #else
         tft.drawPixel(0,0,0); // shared TFT_Spi devices struggle to work, need call a line first sometimes
         tft.pushImage(x, y--, w, 1, (uint16_t*)lineBuffer);
+        #endif
       }
+      #ifndef USE_OLED_096
       tft.setSwapBytes(oldSwapBytes);
+      #endif
       Serial.print("BMP Loaded in "); Serial.print(millis() - startTime);
       Serial.println(" ms");
+      #ifdef USE_OLED_096
+      tft.display();
+      #endif
     }
     else {
       goto ERROR;
@@ -1462,7 +1842,6 @@ File myfile;
 FS* _fs;
 
 void * myOpen(const char *filename, int32_t *size) {
-  //Serial.printf("Attempting to open %s\n", filename);
   myfile = _fs->open(filename);
   *size = myfile.size();
   return &myfile;
@@ -1483,24 +1862,32 @@ int16_t xpos = 0;
 int16_t ypos = 0;
 void PNGDraw(PNGDRAW *pDraw) {
   uint16_t usPixels[320];
-  //static uint16_t dmaBuffer[MAX_IMAGE_WIDTH]; // static so buffer persists after fn exit
   uint8_t r = ((uint16_t)bruceConfig.bgColor & 0xF800) >> 8;
   uint8_t g = ((uint16_t)bruceConfig.bgColor & 0x07E0) >> 3;
   uint8_t b = ((uint16_t)bruceConfig.bgColor & 0x001F) << 3;
   png->getLineAsRGB565(pDraw, usPixels, PNG_RGB565_BIG_ENDIAN, b << 16 | g << 8 | r);
+  
+  #ifdef USE_OLED_096
+  oledPushImage(xpos, ypos + pDraw->y, pDraw->iWidth, 1, usPixels);
+  tft.display();
+  #else
   tft.drawPixel(0,0,0);
   tft.drawPixel(0,0,0);
   tft.pushImage(xpos, ypos + pDraw->y, pDraw->iWidth, 1, usPixels);
+  #endif
 }
 
 bool drawPNG(FS fs, String filename, int x, int y, bool center) {
+  #ifdef USE_OLED_096
+  if ((x >= tftWidth) || (y >= tftHeight)) return false;
+  #else
   if ((x >= tft.width()) || (y >= tft.height())) return false;
+  #endif
   _fs = &fs;
   uint32_t dt = millis();
   png = new PNG();
   int16_t rc = png->open(filename.c_str(), myOpen, myClose, myRead, mySeek, PNGDraw);
   if (rc == PNG_SUCCESS) {
-    //Serial.printf("image specs: (%d x %d), %d bpp, pixel type: %d\n", png->getWidth(), png->getHeight(), png->getBpp(), png->getPixelType());
 
     if(center) {
       xpos=x+(tftWidth-png->getWidth())/2;
@@ -1518,7 +1905,6 @@ bool drawPNG(FS fs, String filename, int x, int y, bool center) {
     Serial.print("PNG Loaded in "); Serial.print(millis()-dt); Serial.println("ms");
   }
   else {
-    ERROR:
     delete png;
     return false;
   }
