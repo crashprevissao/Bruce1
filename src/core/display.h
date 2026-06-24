@@ -64,7 +64,8 @@ public:
       return gif->getInfo(pInfo);
     }
 
-    void reset()){
+    // CORREÇÃO: Parêntese extra ')' removido da declaração da função
+    void reset(){
       return gif->reset();
     }
 
@@ -228,5 +229,6 @@ PROGMEM const unsigned char bits[] = {
   // [COLE AQUI OS BYTES DO SEU ARRAY 'bits[]' DO SEU ARQUIVO ORIGINAL]
 };
 
+#endif // Fecha o bloco !defined(LITE_VERSION)
 
-#endif
+#endif // CORREÇÃO: Fecha o bloco global __DISPLAY_H__
