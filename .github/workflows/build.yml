@@ -45,7 +45,7 @@ jobs:
           pip install platformio
           platformio update
           
-          # Descarrega as dependências de forma limpa
+          # Instala as dependências de forma limpa
           pio pkg install
           
           esp32_file="$HOME/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/lib/libnet80211.a"
@@ -85,8 +85,9 @@ jobs:
           mkdir -p build_outputs
           version="v0.0.${{ github.run_number }}"
           
-          # Caminho padrão do boot_app0.bin dentro do framework instalado
-          boot_app0_src="$HOME/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin"
+          # Localiza dinamicamente o arquivo boot_app0.bin para evitar erros de caminho
+          boot_app0_src=$(find $HOME/.platformio/packages/ -name "boot_app0.bin" | head -n 1)
+          echo "Boot app0 encontrado em: $boot_app0_src"
           
           for env_dir in .pio/build/*/; do
             if [ -d "$env_dir" ]; then
@@ -120,22 +121,23 @@ jobs:
                 # 2. Copia a Partition separado
                 cp "$partitions" "build_outputs/Bruce_${env_name}_${version}_partitions.bin"
                 
-                # 3. Copia o boot_app0 (O arquivo "boot" / "otadata") se ele existir
-                if [ -f "$boot_app0_src" ]; then
-                  cp "$boot_app0_src" "build_outputs/Bruce_${env_name}_${version}_boot_app0.bin"
-                  boot_app0_param="0xe000 $boot_app0_src"
-                else
-                  echo "Aviso: boot_app0.bin não encontrado no caminho padrão."
-                  boot_app0_param=""
-                fi
-                
-                # 4. Copia o Firmware principal separado
+                # 3. Copia o Firmware principal separado
                 cp "$firmware" "build_outputs/Bruce_${env_name}_${version}_firmware.bin"
                 
-                # 5. Cria e salva a versão mesclada (completa contendo todos os 4)
-                echo "Mesclando todos os arquivos no binário unificado..."
-                esptool.py --chip $chip merge_bin -o "$env_dir/release.bin" --flash_mode dio --flash_size $flash_size $offset "$bootloader" 0x8000 "$partitions" $boot_app0_param 0x10000 "$firmware"
-                mv "$env_dir/release.bin" "build_outputs/Bruce_${env_name}_${version}_full_merged.bin"
+                # 4. Copia o boot_app0 ("boot") se encontrado e faz a mesclagem correta
+                if [ -n "$boot_app0_src" ] && [ -f "$boot_app0_src" ]; then
+                  cp "$boot_app0_src" "build_outputs/Bruce_${env_name}_${version}_boot_app0.bin"
+                  echo "Mesclando todos os arquivos (incluindo boot_app0)..."
+                  python -m esptool --chip $chip merge_bin -o "$env_dir/release.bin" --flash_mode dio --flash_size $flash_size $offset "$bootloader" 0x8000 "$partitions" 0xe000 "$boot_app0_src" 0x10000 "$firmware"
+                else
+                  echo "Aviso: boot_app0.bin não encontrado. Mesclando sem ele..."
+                  python -m esptool --chip $chip merge_bin -o "$env_dir/release.bin" --flash_mode dio --flash_size $flash_size $offset "$bootloader" 0x8000 "$partitions" 0x10000 "$firmware"
+                fi
+                
+                # 5. Move a versão mesclada gerada para a pasta final
+                if [ -f "$env_dir/release.bin" ]; then
+                  mv "$env_dir/release.bin" "build_outputs/Bruce_${env_name}_${version}_full_merged.bin"
+                fi
                 
                 echo "Sucesso: Exportados todos os ficheiros para $env_name"
               else
