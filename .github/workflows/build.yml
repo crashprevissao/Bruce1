@@ -1,4 +1,4 @@
-name: Test-build-WROOM-OLED
+name: Build-WROOM-OLED-Exclusive
 
 on:
   workflow_dispatch:
@@ -29,51 +29,57 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Cache PlatformIO (Clean Key)
+      - name: Cache PlatformIO (Clean Isolated Key)
         uses: actions/cache@v4
         with:
           path: |
             ~/.platformio
-          key: ${{ runner.os }}-pio-wroom-final-v1-${{ hashFiles('**/platformio.ini') }}
-          restore-keys: ${{ runner.os }}-pio-wroom-final-v1-
+          key: ${{ runner.os }}-pio-wroom-isolated-v3-${{ hashFiles('**/platformio.ini') }}
+          restore-keys: ${{ runner.os }}-pio-wroom-isolated-v3-
 
-      - name: Inject Official Board Definition to Environment
+      - name: Force Target Environment and Clean Board
         run: |
-          # Altera o platformio.ini dinamicamente para usar a placa padrão esp32dev que possui todas as dependências nativas
-          python -c "
+          cat << 'EOF' > fix_ini.py
           import os
           if os.path.exists('platformio.ini'):
               with open('platformio.ini', 'r') as f:
                   lines = f.readlines()
               
-              new_lines = []
-              inside_target = False
+              output = []
+              is_target_env = False
+              
               for line in lines:
-                  if '[env:esp32-wroom-oled]' in line:
-                      inside_target = True
-                      new_lines.append(line)
+                  trimmed = line.strip()
+                  if trimmed.startswith('[env:esp32-wroom-oled]'):
+                      is_target_env = True
+                      output.append(line)
+                      output.append("board = esp32dev\n")
+                      output.append("board_build.variant = esp32\n")
                       continue
-                  elif line.strip().startswith('[env:') and inside_target:
-                      inside_target = False
+                  elif trimmed.startswith('[env:') and is_target_env:
+                      is_target_env = False
                   
-                  if inside_target and line.strip().startswith('board ='):
-                      new_lines.append('board = esp32dev\n')
-                      print('Modificado: board alterada para esp32dev em esp32-wroom-oled')
-                  else:
-                      new_lines.append(line)
+                  # Remove qualquer definição antiga de placa ou variante clonada que cause conflito
+                  if is_target_env and (trimmed.startswith('board ') or trimmed.startswith('board_build.variant')):
+                      continue
                       
+                  output.append(line)
+                  
               with open('platformio.ini', 'w') as f:
-                  f.writelines(new_lines)
-          "
+                  f.writelines(output)
+              print("Configuração limpa e otimizada aplicada com sucesso para ESP32 WROOM.")
+          EOF
+          python fix_ini.py
 
       - name: Install dependencies
         run: pip install requests esptool
 
-      - name: Install PlatformIO Core
+      - name: Install PlatformIO Core & Clean Libraries
         run: |
           pip install platformio
-          # Instala as dependências de forma limpa
-          pio pkg install
+          
+          # Baixa estritamente as dependências necessárias para o ambiente WROOM OLED
+          pio pkg install -e esp32-wroom-oled
           
           esp32_file="$HOME/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/lib/libnet80211.a"
           esp32_file_temp="$HOME/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/lib/libnet80211_temp.a"
@@ -100,7 +106,7 @@ jobs:
           env_dir=".pio/build/esp32-wroom-oled"
           
           echo "----------------------------------------"
-          echo "Processando arquivos apenas para: esp32-wroom-oled"
+          echo "Processando arquivos finais para gravação no ESP32 WROOM"
           
           bootloader="$env_dir/bootloader.bin"
           partitions="$env_dir/partitions.bin"
@@ -114,10 +120,10 @@ jobs:
             # 2. Copia as Partitions separado (Endereço: 0x8000)
             cp "$partitions" "build_outputs/Bruce_esp32-wroom-oled_${version}_partitions.bin"
             
-            # 3. Copia o Firmware principal separado (Endereço: 0x10000)
+            # 3. Copia o Firmware principal com suporte a OLED, CC1101 e NRF (Endereço: 0x10000)
             cp "$firmware" "build_outputs/Bruce_esp32-wroom-oled_${version}_firmware.bin"
             
-            # 4. Copia o boot_app0 separado (Endereço: 0xe000) e mescla tudo
+            # 4. Copia o boot_app0 separado (Endereço: 0xe000) e mescla tudo em um arquivo único
             if [ -n "$boot_app0_src" ] && [ -f "$boot_app0_src" ]; then
               cp "$boot_app0_src" "build_outputs/Bruce_esp32-wroom-oled_${version}_boot_app0.bin"
               echo "Mesclando os 4 arquivos em um único binário full..."
@@ -126,7 +132,7 @@ jobs:
               echo "Aviso: boot_app0.bin não encontrado. Mesclando sem ele..."
               python -m esptool --chip esp32 merge_bin -o "build_outputs/Bruce_esp32-wroom-oled_${version}_full_merged.bin" --flash_mode dio --flash_size 4MB 0x1000 "$bootloader" 0x8000 "$partitions" 0x10000 "$firmware"
             fi
-            echo "Sucesso: Arquivos individuais e unificados gerados com sucesso."
+            echo "Sucesso: Todos os binários individuais e consolidados foram gerados."
           else
             echo "Erro Crítico: Arquivos gerados não foram localizados."
             exit 1
