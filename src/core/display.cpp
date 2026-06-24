@@ -1916,4 +1916,6 @@ bool drawPNG(FS fs, String filename, int x, int y, bool center) {
 bool drawPNG(FS fs, String filename, int x, int y, bool center) {
   log_w("PNG: Not supported in this version");
 }
-#endif
+#endif // !defined(LITE_VERSION)
+#endif // __DISPLAY_H__
+
